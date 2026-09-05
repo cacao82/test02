@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>컴퓨터 네트워크 혼잡 시뮬레이션</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:"Malgun Gothic",sans-serif;background:#f4f7fb;color:#172033}
+header{background:linear-gradient(135deg,#173b73,#2d6cdf);color:white;padding:28px 5%;text-align:center}
+header h1{margin:0 0 8px;font-size:30px} header p{margin:0;opacity:.9}
+.container{max-width:1250px;margin:24px auto;padding:0 18px}
+.grid{display:grid;grid-template-columns:330px 1fr;gap:20px}
+.card{background:white;border-radius:18px;padding:22px;box-shadow:0 6px 22px #1c376c18}
+h2{font-size:19px;margin:0 0 18px}.control{margin:20px 0}
+label{display:flex;justify-content:space-between;font-weight:700;margin-bottom:8px}
+input[type=range]{width:100%}
+.value{color:#2d6cdf;font-weight:800}
+button{border:0;border-radius:10px;padding:11px 15px;font-weight:700;cursor:pointer;background:#2d6cdf;color:#fff}
+button.secondary{background:#e9eef8;color:#234}
+.status{display:flex;align-items:center;gap:12px;padding:15px;border-radius:12px;margin-bottom:18px;font-weight:800}
+.dot{width:18px;height:18px;border-radius:50%;background:#2ca66f}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.metric{background:#f5f8fd;padding:15px;border-radius:12px}.metric small{display:block;color:#68748a}.metric b{font-size:23px}
+.network{height:145px;display:flex;align-items:center;justify-content:space-around;background:#f7f9fd;border-radius:14px;margin-bottom:20px}
+.node{text-align:center;font-size:28px}.node span{display:block;font-size:13px;font-weight:700;margin-top:5px}
+.arrow{font-size:28px;color:#7a8aa5}
+.chartbox{height:330px;position:relative}.tabs{display:flex;gap:8px;margin-bottom:15px;flex-wrap:wrap}
+.tabs button{background:#eef2f9;color:#34445e}.tabs button.active{background:#2d6cdf;color:white}
+.note{font-size:13px;color:#68748a;line-height:1.6}
+@media(max-width:850px){.grid{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}.chartbox{height:280px}}
+</style>
+</head>
+<body>
+<header>
+<h1>컴퓨터 네트워크 혼잡 시뮬레이션</h1>
+<p>동시 접속자와 데이터 요청량에 따라 네트워크 상태가 어떻게 달라지는지 확인해 보세요.</p>
+</header>
+
+<div class="container">
+<div class="grid">
+<section class="card">
+<h2>① 시뮬레이션 조건</h2>
+
+<div class="control">
+<label>서버 처리 능력 <span class="value" id="serverV">100 요청/초</span></label>
+<input id="server" type="range" min="20" max="1000" value="100">
+</div>
+
+<div class="control">
+<label>네트워크 대역폭 <span class="value" id="bandV">300 Mbps</span></label>
+<input id="band" type="range" min="50" max="1000" value="300">
+</div>
+
+<div class="control">
+<label>동시 접속자 수 <span class="value" id="userV">50명</span></label>
+<input id="users" type="range" min="10" max="20000" value="50">
+</div>
+
+<div class="control">
+<label>데이터 요청량 <span class="value" id="reqV">50</span></label>
+<input id="req" type="range" min="10" max="100" value="50">
+</div>
+
+<button onclick="resetAll()">초기화</button>
+<p class="note">※ 워크시트의 내부 요인(서버 처리 능력·대역폭)과 외부 요인(동시 접속자·데이터 요청량)을 반영한 모델입니다.</p>
+</section>
+
+<section>
+<div class="card">
+<h2>③ 그래프로 확인하기</h2>
+<div class="tabs">
+<button id="t1" class="active" onclick="showChart('users')">접속자 수</button>
+<button id="t2" onclick="showChart('request')">요청량</button>
+<button id="t3" onclick="showChart('bandwidth')">대역폭 비교</button>
+<button id="t4" onclick="showChart('server')">서버 처리능력 비교</button>
+</div>
+<div id="xTitle" style="text-align:center;font-weight:700;margin:-4px 0 10px;color:#52627a"></div><div class="chartbox"><canvas id="chart"></canvas></div>
+</div>
+
+<div class="card" style="margin-top:20px">
+<h2>② 현재 네트워크 상태 요약</h2>
+<div id="status" class="status"><div class="dot"></div><span>원활</span></div>
+<div class="metrics">
+<div class="metric"><small>혼잡도</small><b id="congestion">0%</b></div>
+<div class="metric"><small>전송 지연</small><b id="delay">0 ms</b></div>
+<div class="metric"><small>대기 데이터</small><b id="queue">0</b></div>
+</div>
+
+<div class="network">
+<div class="node">📱💻<span>사용자 기기</span></div>
+<div class="arrow">→</div>
+<div class="node">📡<span>네트워크</span></div>
+<div class="arrow">→</div>
+<div class="node">🖥️<span>서버</span></div>
+</div>
+</div>
+</section>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let chart;
+
+function calc(u,r,b,s){
+  const load=(u/20000*0.45)+(r/100*0.35)+(50/b*0.12)+(50/s*0.08);
+  const c=Math.max(0,Math.min(100,Math.round(load*100)));
+  const d=Math.round(20+c*3.2);
+  const q=Math.round(Math.max(0,(c-25)*4.2));
+  return {c,d,q};
+}
+function update(){
+  const s=+$("server").value,b=+$("band").value,u=+$("users").value,r=+$("req").value;
+  $("serverV").textContent=s+" 요청/초";$("bandV").textContent=(b>=1000 ? (b/1000).toFixed(b%1000===0?0:1)+" Gbps" : b+" Mbps");$("userV").textContent=u+"명";$("reqV").textContent=r;
+  const x=calc(u,r,b,s);$("congestion").textContent=x.c+"%";$("delay").textContent=x.d+" ms";$("queue").textContent=x.q;
+  const st=$("status"), dot=st.querySelector(".dot");
+  let text="원활",bg="#e8f7ef";
+  if(x.c>=75){text="매우 혼잡";bg="#fdecec"}else if(x.c>=55){text="혼잡";bg="#fff0e6"}else if(x.c>=35){text="주의";bg="#fff8d9"}
+  st.style.background=bg;st.querySelector("span").textContent=text;
+  draw(current);
+}
+["server","band","users","req"].forEach(id=>$(id).addEventListener("input",update));
+
+let current="users";
+function showChart(type){
+ current=type;
+ document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("active"));
+ $("t"+({users:1,request:2,bandwidth:3,server:4}[type])).classList.add("active");
+ draw(type);
+}
+function draw(type){
+ const u=+$("users").value,r=+$("req").value,b=+$("band").value,s=+$("server").value;
+ let labels=[],data=[],title="";
+ if(type==="users"){for(let v=1000;v<=20000;v+=1000){labels.push(v+"명");data.push(calc(v,r,b,s).c)}title="동시 접속자 수에 따른 네트워크 혼잡도";}
+ if(type==="request"){for(let v=10;v<=100;v+=10){labels.push(v);data.push(calc(u,v,b,s).c)}title="데이터 요청량에 따른 네트워크 혼잡도";}
+ if(type==="bandwidth"){for(let v=50;v<=1000;v+=50){labels.push(v>=1000?"1 Gbps":v+" Mbps");data.push(calc(u,r,v,s).c)}title="네트워크 대역폭에 따른 네트워크 혼잡도";}
+ if(type==="server"){for(let v=100;v<=1000;v+=100){labels.push(v+" 요청/초");data.push(calc(u,r,b,v).c)}title="서버 처리 능력에 따른 네트워크 혼잡도";}
+ if(chart)chart.destroy();
+ $("xTitle").textContent = type==="users" ? "동시 접속자 수 (명)" : type==="request" ? "데이터 요청량 (상대값)" : type==="bandwidth" ? "네트워크 대역폭 (Mbps)" : "서버 처리 능력 (요청/초)";
+ chart=new Chart($("chart"),{type:"line",data:{labels,datasets:[{label:"혼잡도",data,tension:.25,fill:false}]},
+ options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true}},scales:{y:{min:0,max:100,title:{display:true,text:"혼잡도 (%)"}}}}});
+}
+function resetAll(){$("server").value=100;$("band").value=300;$("users").value=50;$("req").value=50;update();}
+update();
+</script>
+</body>
+</html>
